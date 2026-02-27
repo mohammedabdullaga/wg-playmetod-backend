@@ -1,9 +1,15 @@
 # Node.js dependencies
 node_modules/
-
+admin-panel/node_modules/
+admin-panel-react-js/node_modules/
+admin-panel-react-js/dist/
+admin-panel/dist/
+admin-panel/
+admin-panel-react-js/
 # Environment variables
 .env
 .env.*
+README.md
 
 # SQLite database file
 /data/app.db

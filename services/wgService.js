@@ -69,15 +69,55 @@ async function syncWireGuard() {
   });
 }
 
-function getWireGuardStatus() {
+// parse output of `wg show <iface> dump` into structured json
+function _parseDump(output) {
+  const lines = output.trim().split('\n');
+  if (lines.length === 0) return null;
+  const [ifaceLine, ...peerLines] = lines;
+  const ifFields = ifaceLine.split('\t');
+  const iface = {
+    name: ifFields[0],
+    publicKey: ifFields[1],
+    listenPort: parseInt(ifFields[3], 10) || null,
+    fwmark: ifFields[4] || null,
+  };
+  const peers = peerLines.map(l => {
+    const f = l.split('\t');
+    return {
+      publicKey: f[1],
+      endpoint: f[4] || null,
+      allowedIps: f[5] ? f[5].split(',') : [],
+      latestHandshakeEpoch: parseInt(f[6], 10) || 0,
+      txBytes: parseInt(f[7], 10) || 0,
+      rxBytes: parseInt(f[8], 10) || 0,
+      persistentKeepalive: parseInt(f[9], 10) || 0,
+    };
+  });
+  return { interface: iface, peers, generatedAt: new Date().toISOString() };
+}
+
+async function getWireGuardStatus() {
+  // read interface from settings and validate
+  const settings = db.prepare('SELECT wg_interface FROM settings WHERE id = 1').get();
+  let iface = (settings && settings.wg_interface) ? settings.wg_interface : 'wg0';
+  // validate name
+  if (!/^[a-zA-Z0-9_=+\-.]{1,15}$/.test(iface)) {
+    throw new Error('invalid interface name');
+  }
   return new Promise((resolve, reject) => {
-    const wg = spawn('wg', ['show', 'all']);
+    const wg = spawn('wg', ['show', iface, 'dump']);
     let out = '';
     wg.stdout.on('data', (d) => { out += d.toString(); });
     wg.on('error', reject);
     wg.on('close', (code) => {
       if (code !== 0) return reject(new Error('wg show failed')); 
-      resolve(out);
+      try {
+        const parsed = _parseDump(out);
+        if (!parsed) return reject(new Error('no output'));
+        resolve(parsed);
+      } catch (e) {
+        reject(e);
+      }
     });
   });
 }

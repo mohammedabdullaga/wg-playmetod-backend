@@ -42,7 +42,8 @@ backend/
 ## Features
 - Voucher redemption
 - Single‑admin login via email/password (credentials set in `.env`, stored hashed in DB)
-- JWT‑protected admin endpoints for managing vouchers, subscriptions, peers, and wg status
+- JWT‑protected admin endpoints for managing vouchers, subscriptions, peers, and wg status (list/create vouchers now return JSON)
+- Health check endpoint at `GET /api/health` for uptime monitoring
 - Hourly expiry enforcement
 - WireGuard sync via `wg syncconf`
 

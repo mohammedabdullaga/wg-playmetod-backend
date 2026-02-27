@@ -35,6 +35,9 @@ const redeemLimiter = rateLimit({
 
 app.use('/api/voucher/redeem', redeemLimiter);
 
+// simple health check
+app.get('/api/health', (req, res) => res.json({ ok: true }));
+
 // routes
 app.use('/api/voucher', voucherRouter);
 app.use('/api/admin', adminRouter);

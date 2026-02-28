@@ -11,6 +11,9 @@ const adminService = require('./services/adminService');
 // create app
 const app = express();
 
+// trust proxy - required when behind reverse proxy/nginx
+app.set('trust proxy', true);
+
 // middleware
 app.use(helmet());
 

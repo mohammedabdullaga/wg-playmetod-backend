@@ -9,11 +9,7 @@
  */
 
 const db = require('./database');
-const { VOUCHER_PATTERN, VOUCHER_ALPHABET } = require('./config/voucher');
-
-function validateCode(code) {
-  return VOUCHER_PATTERN.test(code);
-}
+const { VOUCHER_ALPHABET, normalizeVoucherCode, validateNormalizedCode } = require('./config/voucher');
 
 function generateNewCode() {
   const groups = [];
@@ -34,53 +30,63 @@ function ensureUnique(code, attempts = 0) {
   return code;
 }
 
-console.log('🔧 Voucher Format Migration\n');
-console.log('This script will fix invalid vouchers in your database.\n');
+console.log('🔧 Voucher Format Fix Script\n');
+console.log('This script will fix vouchers in your database by normalizing them.\n');
 
 try {
-  const invalid = db.prepare('SELECT id, code, is_redeemed FROM vouchers').all()
-    .filter(v => !validateCode(v.code));
+  const allVouchers = db.prepare('SELECT id, code, is_redeemed FROM vouchers').all();
   
-  if (invalid.length === 0) {
-    console.log('✅ All vouchers in database are valid! No action needed.\n');
+  if (allVouchers.length === 0) {
+    console.log('❌ No vouchers found in database!\n');
     process.exit(0);
   }
   
-  console.log(`⚠️  Found ${invalid.length} invalid vouchers:\n`);
+  // Separate valid and invalid vouchers
+  const valid = allVouchers.filter(v => validateNormalizedCode(v.code));
+  const invalid = allVouchers.filter(v => !validateNormalizedCode(v.code));
   
-  const unredeemed = invalid.filter(v => !v.is_redeemed);
-  const redeemed = invalid.filter(v => v.is_redeemed);
+  console.log(`📊 Total vouchers: ${allVouchers.length}`);
+  console.log(`   ✅ Already valid:    ${valid.length}`);
+  console.log(`   ❌ Need fixing:      ${invalid.length}\n`);
   
-  console.log(`  🟢 Unredeemed (can be fixed): ${unredeemed.length}`);
-  console.log(`  🔴 Already redeemed (problematic): ${redeemed.length}\n`);
+  if (invalid.length === 0) {
+    console.log('✅ All vouchers are already valid! No action needed.\n');
+    process.exit(0);
+  }
   
-  if (redeemed.length > 0) {
-    console.log('⚠️  WARNING: Some invalid vouchers are already marked as redeemed.');
-    console.log('   These cannot be automatically fixed. They need manual review.\n');
-    console.log('   Invalid redeemed vouchers:');
-    redeemed.forEach(v => {
-      console.log(`   - ${v.code} (ID: ${v.id})`);
+  const fixable = invalid.filter(v => normalizeVoucherCode(v.code) !== '');
+  const unfixable = invalid.filter(v => normalizeVoucherCode(v.code) === '');
+  
+  console.log(`   📝 Can normalize (add dashes): ${fixable.length}`);
+  console.log(`   ⚠️  Cannot fix (invalid chars):  ${unfixable.length}\n`);
+  
+  if (fixable.length > 0) {
+    console.log('🔄 Normalizing fixable vouchers...\n');
+    let fixed = 0;
+    fixable.forEach((v, idx) => {
+      const normalized = normalizeVoucherCode(v.code);
+      if (normalized && normalized !== v.code) {
+        db.prepare('UPDATE vouchers SET code = ? WHERE id = ?').run(normalized, v.id);
+        console.log(`[${idx + 1}/${fixable.length}] ${v.code} → ${normalized}`);
+        fixed++;
+      }
     });
-    console.log();
+    console.log(`\n✅ Fixed ${fixed} vouchers by adding dashes\n`);
   }
   
-  console.log('🔄 Fixing unredeemed vouchers...\n');
-  
-  let fixed = 0;
-  unredeemed.forEach((v, idx) => {
-    const newCode = ensureUnique(generateNewCode());
-    db.prepare('UPDATE vouchers SET code = ? WHERE id = ?').run(newCode, v.id);
-    console.log(`[${idx + 1}/${unredeemed.length}] ${v.code} → ${newCode}`);
-    fixed++;
-  });
-  
-  console.log(`\n✅ Fixed ${fixed} vouchers\n`);
-  console.log('📋 Database has been updated. All vouchers should now work with the redemption API.\n');
-  
-  if (redeemed.length > 0) {
-    console.log('⚠️  Note: Please manually review the redeemed invalid vouchers listed above.\n');
+  if (unfixable.length > 0) {
+    console.log(`⚠️  WARNING: ${unfixable.length} vouchers have invalid characters and cannot be fixed.\n`);
+    console.log('These will need to be manually reviewed or regenerated:');
+    unfixable.forEach((v, idx) => {
+      console.log(`   ${idx + 1}. ID: ${v.id}, Code: "${v.code}", Redeemed: ${v.is_redeemed ? 'YES' : 'NO'}`);
+    });
+    if (unfixable.filter(v => !v.is_redeemed).length > 0) {
+      console.log('\nTo regenerate unredeemed invalid vouchers, run:');
+      console.log('   node regenerate-vouchers.js\n');
+    }
   }
   
+  console.log('✅ Fix complete!\n');
   process.exit(0);
 
 } catch (err) {

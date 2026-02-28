@@ -7,15 +7,11 @@
  */
 
 const db = require('./database');
-const { VOUCHER_PATTERN, VOUCHER_ALPHABET } = require('./config/voucher');
-
-function validateCode(code) {
-  return VOUCHER_PATTERN.test(code);
-}
+const { VOUCHER_ALPHABET, VOUCHER_PATTERN_STRICT, normalizeVoucherCode, validateNormalizedCode } = require('./config/voucher');
 
 console.log('🔍 Voucher Diagnostic Report\n');
 console.log('Alphabet:', VOUCHER_ALPHABET);
-console.log('Pattern:', VOUCHER_PATTERN);
+console.log('Pattern (strict):', VOUCHER_PATTERN_STRICT);
 console.log('='.repeat(80));
 
 try {
@@ -30,50 +26,48 @@ try {
   
   let validCount = 0;
   let invalidCount = 0;
+  let fixableCount = 0;
   
   vouchers.forEach((v, idx) => {
-    const isValid = validateCode(v.code);
+    const normalized = normalizeVoucherCode(v.code);
+    const isValid = normalized && validateNormalizedCode(normalized);
     const status = isValid ? '✅' : '❌';
     const redeemStatus = v.is_redeemed ? '🔴 REDEEMED' : '🟢 AVAILABLE';
     
     if (isValid) validCount++;
     else invalidCount++;
     
+    // Check if it can be fixed (valid chars but missing dashes)
+    if (!isValid && normalized) fixableCount++;
+    
     console.log(`[${idx + 1}] ${status} ${v.code} ${redeemStatus}`);
     console.log(`    Duration: ${v.duration_days} days | Created: ${v.created_at}`);
     
     if (!isValid) {
-      // Analyze why it's invalid
-      const hasInvalidChars = /[OI01\-]/.test(v.code.replace(/-/g, ''));
-      const hasOorI = /[OI]/.test(v.code);
-      const has01 = /[01]/.test(v.code);
-      const dashCount = (v.code.match(/-/g) || []).length;
-      const parts = v.code.split('-');
-      const wrongLength = parts.some(p => p.length !== 4);
+      console.log(`    💡 Normalized would be: "${normalized}"`);
       
-      console.log(`    ❌ Issues:`);
-      if (hasOorI) console.log(`       - Contains confusing letters O or I`);
-      if (has01) console.log(`       - Contains confusing digits 0 or 1`);
-      if (wrongLength) console.log(`       - Some groups aren't 4 characters long (found: ${parts.map(p => p.length).join(',')})`);
-      if (dashCount !== 3) console.log(`       - Has ${dashCount} dashes instead of 3`);
-      
-      // Show normalization attempt
-      const normalized = v.code.trim().toUpperCase();
-      const normalizedValid = validateCode(normalized);
-      console.log(`    → After normalization: "${normalized}" → ${normalizedValid ? '✅ VALID' : '❌ STILL INVALID'}`);
+      if (!normalized) {
+        console.log(`    ❌ Cannot be normalized - invalid characters or wrong length`);
+        const cleaned = v.code.trim().toUpperCase().replace(/-/g, '');
+        console.log(`       Length: ${cleaned.length} chars (should be exactly 16)`);
+      }
     }
     console.log();
   });
   
   console.log('='.repeat(80));
   console.log(`\n📈 Summary:`);
-  console.log(`   ✅ Valid vouchers:   ${validCount}`);
-  console.log(`   ❌ Invalid vouchers: ${invalidCount}`);
+  console.log(`   ✅ Valid vouchers:     ${validCount}`);
+  console.log(`   ⚠️  Fixable vouchers:   ${fixableCount} (missing dashes but valid)`);
+  console.log(`   ❌ Invalid vouchers:   ${invalidCount}`);
   
-  if (invalidCount > 0) {
-    console.log(`\n⚠️  ACTION NEEDED:\n   Your admin panel is generating vouchers that don't match the backend pattern!`);
-    console.log(`   The pattern should be: XXXX-XXXX-XXXX-XXXX`);
-    console.log(`   With alphabet: ABCDEFGHJKLMNPQRSTUVWXYZ23456789 (no O, I, 0, 1)\n`);
+  if (invalidCount > 0 || fixableCount > 0) {
+    console.log(`\n💡 The backend now accepts codes with OR without dashes!`);
+    console.log(`   Codes are automatically normalized to: XXXX-XXXX-XXXX-XXXX`);
+    console.log(`   For example: "TEFD8MN5D99Q48MW" → "TEFD-8MN5-D99Q-48MW"`);
+    if (!validCount && fixableCount > 0) {
+      console.log(`\n✅ All your vouchers are fixable! They should work immediately.`);
+    }
   }
   
   process.exit(0);

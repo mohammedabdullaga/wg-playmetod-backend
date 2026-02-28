@@ -1,11 +1,7 @@
 const db = require('../database');
 const wgService = require('./wgService');
 const crypto = require('crypto');
-const { VOUCHER_PATTERN, VOUCHER_ALPHABET } = require('../config/voucher');
-
-function validateCode(code) {
-  return VOUCHER_PATTERN.test(code);
-}
+const { VOUCHER_ALPHABET, normalizeVoucherCode, validateNormalizedCode } = require('../config/voucher');
 
 function findNextIp() {
   const settings = db.prepare('SELECT * FROM settings WHERE id = 1').get();
@@ -21,14 +17,13 @@ function findNextIp() {
 }
 
 async function redeemVoucher(code, email, phone) {
-  // normalize: trim + uppercase
-  const normalized = (code || '').trim().toUpperCase();
+  // Normalize: handle both formats (with/without dashes)
+  const normalized = normalizeVoucherCode(code);
   
   console.log(`[Voucher] Redeem attempt - Input: "${code}", Normalized: "${normalized}"`);
   
-  if (!validateCode(normalized)) {
-    console.log(`[Voucher] Validation failed for: "${normalized}"`);
-    console.log(`[Voucher] Pattern: ${VOUCHER_PATTERN}`);
+  if (!normalized || !validateNormalizedCode(normalized)) {
+    console.log(`[Voucher] Validation failed for normalized code: "${normalized}"`);
     const err = new Error('Invalid voucher code format');
     err.status = 400;
     throw err;

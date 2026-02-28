@@ -55,15 +55,34 @@ async function syncWireGuard() {
   const conf = _buildConfig(peers, settings);
   const tmpPath = path.join(os.tmpdir(), `wg-conf-${Date.now()}.conf`);
   fs.writeFileSync(tmpPath, conf);
+  
+  console.log(`[WG] Syncing interface: ${settings.wg_interface}`);
+  console.log(`[WG] Config file: ${tmpPath}`);
+  console.log(`[WG] Configuration:\n${conf}`);
+  
   return new Promise((resolve, reject) => {
     const wg = spawn('wg', ['syncconf', settings.wg_interface, tmpPath]);
+    let stderr = '';
+    let stdout = '';
+    
+    wg.stdout.on('data', (d) => { stdout += d.toString(); });
+    wg.stderr.on('data', (d) => { stderr += d.toString(); });
+    
     wg.on('error', (err) => {
       fs.unlinkSync(tmpPath);
+      console.error(`[WG] Spawn error:`, err.message);
       reject(err);
     });
+    
     wg.on('close', (code) => {
       fs.unlinkSync(tmpPath);
-      if (code !== 0) return reject(new Error('wg syncconf exited ' + code));
+      if (code !== 0) {
+        console.error(`[WG] syncconf exited with code ${code}`);
+        if (stderr) console.error(`[WG] stderr: ${stderr}`);
+        if (stdout) console.error(`[WG] stdout: ${stdout}`);
+        return reject(new Error(`wg syncconf exited ${code}: ${stderr || 'unknown error'}`));
+      }
+      console.log(`[WG] syncconf successful`);
       resolve();
     });
   });

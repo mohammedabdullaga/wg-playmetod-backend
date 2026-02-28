@@ -77,4 +77,4 @@ async function redeemVoucher(code, email, phone) {
   };
 }
 
-module.exports = { redeemVoucher, validateCode };
+module.exports = { redeemVoucher };

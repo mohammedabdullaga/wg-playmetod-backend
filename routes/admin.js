@@ -123,4 +123,94 @@ router.get('/wg/status', requireAdmin, async (req, res, next) => {
   }
 });
 
+// get current admin identity
+router.get('/me', requireAdmin, (req, res) => {
+  res.json({ email: req.admin.email });
+});
+
+// get settings
+router.get('/settings', requireAdmin, (req, res) => {
+  const settings = db.prepare('SELECT * FROM settings WHERE id = 1').get();
+  if (!settings) {
+    return res.status(404).json({ error: 'settings not found' });
+  }
+  res.json(settings);
+});
+
+// update settings (all fields optional)
+router.put('/settings', requireAdmin, (req, res) => {
+  const {
+    wg_interface,
+    subnet,
+    ip_start,
+    server_public_ip,
+    server_port,
+    client_dns,
+    client_allowed_ips,
+  } = req.body;
+
+  const updates = [];
+  const values = [];
+
+  if (wg_interface !== undefined) {
+    updates.push('wg_interface = ?');
+    values.push(wg_interface);
+  }
+  if (subnet !== undefined) {
+    updates.push('subnet = ?');
+    values.push(subnet);
+  }
+  if (ip_start !== undefined) {
+    updates.push('ip_start = ?');
+    values.push(ip_start);
+  }
+  if (server_public_ip !== undefined) {
+    updates.push('server_public_ip = ?');
+    values.push(server_public_ip);
+  }
+  if (server_port !== undefined) {
+    updates.push('server_port = ?');
+    values.push(server_port);
+  }
+  if (client_dns !== undefined) {
+    updates.push('client_dns = ?');
+    values.push(client_dns);
+  }
+  if (client_allowed_ips !== undefined) {
+    updates.push('client_allowed_ips = ?');
+    values.push(client_allowed_ips);
+  }
+
+  if (updates.length === 0) {
+    // no changes, just return current
+    const settings = db.prepare('SELECT * FROM settings WHERE id = 1').get();
+    return res.json(settings);
+  }
+
+  values.push(1); // WHERE id = 1
+  const sql = `UPDATE settings SET ${updates.join(', ')} WHERE id = ?`;
+  db.prepare(sql).run(...values);
+
+  const updated = db.prepare('SELECT * FROM settings WHERE id = 1').get();
+  res.json(updated);
+});
+
+// dashboard overview / stats
+router.get('/overview', requireAdmin, (req, res) => {
+  const vouchers = db.prepare('SELECT COUNT(*) as total FROM vouchers').get();
+  const vouchersRedeemed = db.prepare('SELECT COUNT(*) as total FROM vouchers WHERE is_redeemed = 1').get();
+  const subscriptions = db.prepare('SELECT COUNT(*) as total FROM subscriptions').get();
+  const peers = db.prepare('SELECT COUNT(*) as total FROM peers WHERE enabled = 1').get();
+
+  res.json({
+    vouchers: {
+      total: vouchers.total,
+      redeemed: vouchersRedeemed.total,
+      available: vouchers.total - vouchersRedeemed.total,
+    },
+    subscriptions: subscriptions.total,
+    peers: peers.total,
+  });
+});
+
 module.exports = router;

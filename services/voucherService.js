@@ -70,7 +70,10 @@ async function redeemVoucher(code, email, phone) {
   const settings = db.prepare('SELECT * FROM settings WHERE id = 1').get();
   const link = `wg://${settings.server_public_ip}:${settings.server_port}?peer=${ip}`;
 
+  // return both token and link for frontend compatibility
   return {
+    token: accessToken,
+    userUrl: `https://wg.playmetod.store/s/${accessToken}`,
     access_link: link,
     ip,
     expires_at,

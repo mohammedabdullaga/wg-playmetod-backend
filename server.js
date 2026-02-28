@@ -5,6 +5,7 @@ const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 const voucherRouter = require('./routes/voucher');
 const adminRouter = require('./routes/admin');
+const subscriptionRouter = require('./routes/subscription');
 const expiryService = require('./services/expiryService');
 const adminService = require('./services/adminService');
 
@@ -43,6 +44,7 @@ app.get('/api/health', (req, res) => res.json({ ok: true }));
 
 // routes
 app.use('/api/voucher', voucherRouter);
+app.use('/api/subscription', subscriptionRouter); // public access for redeemed users
 app.use('/api/admin', adminRouter);
 
 // global error handler

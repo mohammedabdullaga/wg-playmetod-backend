@@ -67,6 +67,9 @@ It doesn't require a WireGuard installation and is mainly useful when editing th
 ### Public
 - `GET /api/health` - health check
 - `POST /api/voucher/redeem` - redeem voucher (rate limited)
+- `GET /api/subscription/:token` - retrieve subscription status (used by user portal)
+- `GET /api/subscription/:token/qr` - returns PNG QR code for WireGuard link
+- `GET /api/subscription/:token/config` - download client WireGuard configuration
 
 ### Admin (require JWT auth)
 - `POST /api/admin/login` - login with email/password
@@ -111,6 +114,20 @@ curl -X PUT http://localhost:3000/api/admin/settings \
   -H "Authorization: Bearer $TOKEN" \
   -d '{"server_public_ip":"203.0.113.45","server_port":51820}' | jq
 ```
+
+### Redeeming vouchers (user-facing behaviour)
+When a voucher is successfully redeemed the backend now returns a small JSON payload containing a `token` that the frontend uses to display subscription info. Example response:
+```json
+{
+  "token": "a1b2c3d4...",
+  "userUrl": "https://wg.playmetod.store/s/a1b2c3d4...",
+  "access_link": "wg://203.0.113.45:51820?peer=10.0.0.2",
+  "ip": "10.0.0.2",
+  "expires_at": "2026-03-30T12:34:56.000Z"
+}
+```
+
+The frontend will then navigate the user to `/s/<token>` which triggers the public `subscription` endpoints.
 
 ### Get WireGuard status
 ```bash

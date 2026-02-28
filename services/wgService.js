@@ -31,9 +31,13 @@ async function generatePeerKeys() {
 }
 
 function _buildConfig(peers, settings) {
+  // use the full subnet (including mask) as interface address
+  // wg expects an address with CIDR, e.g. 10.0.0.1/24 or 10.0.0.0/24
+  // settings.subnet is stored like 10.0.0.0/24; using that directly avoids
+  // the previous "Line unrecognized" error when only the base was provided.
   let conf = `
 [Interface]
-Address = ${settings.subnet.split('/')[0]}
+Address = ${settings.subnet}
 ListenPort = ${settings.server_port}
 `;
   // note: the server private key should already be configured on the interface

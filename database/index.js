@@ -1,8 +1,23 @@
+const fs = require('fs');
 const path = require('path');
 const Database = require('better-sqlite3');
 
-const dbPath = path.join(__dirname, '../data/app.db');
+// ensure data directory exists
+const dataDir = path.join(__dirname, '../data');
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir, { recursive: true });
+}
+
+const dbPath = path.join(dataDir, 'app.db');
 const db = new Database(dbPath);
+
+// enable WAL mode for better concurrency and sane sync
+try {
+  db.pragma('journal_mode = WAL');
+  db.pragma('synchronous = NORMAL');
+} catch (e) {
+  console.warn('could not set pragmas', e.message);
+}
 
 // run migrations / ensure tables exist
 function init() {
@@ -14,9 +29,16 @@ function init() {
       code TEXT UNIQUE,
       duration_days INTEGER,
       is_redeemed INTEGER DEFAULT 0,
+      redeemed_at DATETIME,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `).run();
+
+  // add redeemed_at column if missing (migration)
+  const cols = db.prepare(`PRAGMA table_info(vouchers)`).all().map(r => r.name);
+  if (!cols.includes('redeemed_at')) {
+    db.prepare('ALTER TABLE vouchers ADD COLUMN redeemed_at DATETIME').run();
+  }
 
   create(`
     CREATE TABLE IF NOT EXISTS admins (

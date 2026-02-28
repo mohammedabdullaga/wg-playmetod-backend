@@ -47,8 +47,8 @@ async function redeemVoucher(code, email, phone) {
   const peerInfo = peerStmt.run(subscriptionId, keys.publicKey, keys.privateKey, ip);
   db.prepare('UPDATE subscriptions SET peer_id = ? WHERE id = ?').run(peerInfo.lastInsertRowid, subscriptionId);
 
-  // mark voucher redeemed
-  db.prepare('UPDATE vouchers SET is_redeemed = 1 WHERE id = ?').run(voucher.id);
+  // mark voucher redeemed and record timestamp
+  db.prepare('UPDATE vouchers SET is_redeemed = 1, redeemed_at = CURRENT_TIMESTAMP WHERE id = ?').run(voucher.id);
 
   await wgService.syncWireGuard();
 

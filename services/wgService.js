@@ -30,64 +30,119 @@ async function generatePeerKeys() {
   });
 }
 
-function _buildConfig(peers, settings) {
-  // use the full subnet (including mask) as interface address
-  // wg expects an address with CIDR, e.g. 10.0.0.1/24 or 10.0.0.0/24
-  // settings.subnet is stored like 10.0.0.0/24; using that directly avoids
-  // the previous "Line unrecognized" error when only the base was provided.
-  let conf = `
-[Interface]
-Address = ${settings.subnet}
-ListenPort = ${settings.server_port}
-`;
-  // note: the server private key should already be configured on the interface
-  // or you can extend settings table to include it if desired
-  peers.forEach(p => {
-    if (!p.enabled) return;
-    conf += `
+// validate that the interface name is safe for use in filenames/commands
+function validateInterface(iface) {
+  if (!iface) throw new Error('wg interface not specified');
+  // only allow simple alphanumeric/underscore names (no spaces, slashes, etc.)
+  if (!/^[a-zA-Z0-9_]+$/.test(iface)) {
+    throw new Error('invalid interface name');
+  }
+  return iface;
+}
+
+// build the peer block portion of a WireGuard config from DB rows
+function _peerBlocks(peers) {
+  return peers
+    .filter(p => p.enabled)
+    .map(p => `
 [Peer]
 PublicKey = ${p.public_key}
 AllowedIPs = ${p.ip_address}/32
-`;
-  });
-  return conf;
+`)
+    .join('');
 }
 
 async function syncWireGuard() {
+  // read settings and validate interface name
   const settings = db.prepare('SELECT * FROM settings WHERE id = 1').get();
+  const iface = validateInterface(settings && settings.wg_interface ? settings.wg_interface : 'wg0');
+  const wgConfPath = `/etc/wireguard/${iface}.conf`;
+
+  // read existing config and keep a backup in case we need to roll back
+  let original;
+  try {
+    original = fs.readFileSync(wgConfPath, 'utf8');
+  } catch (err) {
+    throw new Error(`unable to read ${wgConfPath}: ${err.message}`);
+  }
+
+  // build new peer blocks from database
   const peers = db.prepare('SELECT * FROM peers').all();
-  const conf = _buildConfig(peers, settings);
-  const tmpPath = path.join(os.tmpdir(), `wg-conf-${Date.now()}.conf`);
-  fs.writeFileSync(tmpPath, conf);
-  
-  console.log(`[WG] Syncing interface: ${settings.wg_interface}`);
-  console.log(`[WG] Config file: ${tmpPath}`);
-  console.log(`[WG] Configuration:\n${conf}`);
-  
+  const blocks = _peerBlocks(peers);
+
+  // remove any existing peer definitions from the original file
+  const interfacePart = original.split(/\r?\n\[Peer\]/)[0];
+  const newContent = (interfacePart.trimEnd() + '\n\n' + blocks.trim() + '\n').replace(/\n{3,}/g, '\n\n');
+
+  const backupPath = path.join(os.tmpdir(), `${iface}-conf-backup-${Date.now()}.conf`);
+  fs.writeFileSync(backupPath, original, { mode: 0o600 });
+
+  // write updated configuration back to the live file
+  fs.writeFileSync(wgConfPath, newContent, { mode: 0o600 });
+
+  console.log(`[WG] wrote updated config to ${wgConfPath}`);
+  console.log(`[WG] new configuration:\n${newContent}`);
+
+  // now generate stripped configuration for syncconf
+  const tmpPath = path.join(os.tmpdir(), `wg-strip-${Date.now()}.conf`);
+
   return new Promise((resolve, reject) => {
-    const wg = spawn('wg', ['syncconf', settings.wg_interface, tmpPath]);
-    let stderr = '';
-    let stdout = '';
-    
-    wg.stdout.on('data', (d) => { stdout += d.toString(); });
-    wg.stderr.on('data', (d) => { stderr += d.toString(); });
-    
-    wg.on('error', (err) => {
-      fs.unlinkSync(tmpPath);
-      console.error(`[WG] Spawn error:`, err.message);
-      reject(err);
-    });
-    
-    wg.on('close', (code) => {
-      fs.unlinkSync(tmpPath);
+    const strip = spawn('wg-quick', ['strip', iface]);
+    let stripOut = '';
+    let stripErr = '';
+
+    strip.stdout.on('data', (d) => { stripOut += d.toString(); });
+    strip.stderr.on('data', (d) => { stripErr += d.toString(); });
+
+    strip.on('close', (code) => {
       if (code !== 0) {
-        console.error(`[WG] syncconf exited with code ${code}`);
-        if (stderr) console.error(`[WG] stderr: ${stderr}`);
-        if (stdout) console.error(`[WG] stdout: ${stdout}`);
-        return reject(new Error(`wg syncconf exited ${code}: ${stderr || 'unknown error'}`));
+        // restore original config before rejecting
+        fs.writeFileSync(wgConfPath, original, { mode: 0o600 });
+        fs.unlinkSync(backupPath);
+        console.error(`[WG] wg-quick strip failed (${code}): ${stripErr}`);
+        return reject(new Error(`wg-quick strip failed: ${stripErr || stripOut}`));
       }
-      console.log(`[WG] syncconf successful`);
-      resolve();
+      fs.writeFileSync(tmpPath, stripOut, { mode: 0o600 });
+
+      // perform syncconf using the stripped file
+      const wg = spawn('wg', ['syncconf', iface, tmpPath]);
+      let stderr = '';
+      let stdout = '';
+
+      wg.stdout.on('data', (d) => { stdout += d.toString(); });
+      wg.stderr.on('data', (d) => { stderr += d.toString(); });
+
+      wg.on('close', (code2) => {
+        // cleanup stripped temp file
+        try { fs.unlinkSync(tmpPath); } catch (e) {}
+
+        if (code2 !== 0) {
+          // rollback config file
+          fs.writeFileSync(wgConfPath, original, { mode: 0o600 });
+          fs.unlinkSync(backupPath);
+          console.error(`[WG] syncconf failed (${code2}): ${stderr}`);
+          return reject(new Error(`wg syncconf exited ${code2}: ${stderr || stdout}`));
+        }
+
+        // success, remove backup
+        try { fs.unlinkSync(backupPath); } catch (e) {}
+        console.log(`[WG] syncconf successful`);
+        resolve();
+      });
+
+      wg.on('error', (err) => {
+        try { fs.unlinkSync(tmpPath); } catch (e) {}
+        fs.writeFileSync(wgConfPath, original, { mode: 0o600 });
+        fs.unlinkSync(backupPath);
+        reject(err);
+      });
+    });
+
+    strip.on('error', (err) => {
+      // restore and cleanup
+      try { fs.writeFileSync(wgConfPath, original, { mode: 0o600 }); } catch (e) {}
+      try { fs.unlinkSync(backupPath); } catch (e) {}
+      reject(err);
     });
   });
 }
@@ -120,20 +175,15 @@ function _parseDump(output) {
 }
 
 async function getWireGuardStatus() {
-  // read interface from settings and validate
   const settings = db.prepare('SELECT wg_interface FROM settings WHERE id = 1').get();
-  let iface = (settings && settings.wg_interface) ? settings.wg_interface : 'wg0';
-  // validate name
-  if (!/^[a-zA-Z0-9_=+\-.]{1,15}$/.test(iface)) {
-    throw new Error('invalid interface name');
-  }
+  const iface = validateInterface(settings && settings.wg_interface ? settings.wg_interface : 'wg0');
   return new Promise((resolve, reject) => {
     const wg = spawn('wg', ['show', iface, 'dump']);
     let out = '';
     wg.stdout.on('data', (d) => { out += d.toString(); });
     wg.on('error', reject);
     wg.on('close', (code) => {
-      if (code !== 0) return reject(new Error('wg show failed')); 
+      if (code !== 0) return reject(new Error('wg show failed'));
       try {
         const parsed = _parseDump(out);
         if (!parsed) return reject(new Error('no output'));
@@ -158,4 +208,7 @@ module.exports = {
   getWireGuardStatus,
   generatePeerKeys,
   importManualPeer,
+  // helpers exported for unit testing
+  validateInterface,
+  _peerBlocks,
 };

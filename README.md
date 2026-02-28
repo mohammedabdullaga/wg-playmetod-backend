@@ -40,6 +40,15 @@ backend/
 4. Run: `node server.js` 
 5. Or install as systemd service: `sudo cp wg-backend.service /etc/systemd/system/ && sudo systemctl enable --now wg-backend`
 
+### Running the small built-in test
+A lightweight smoke test for a couple of internal helpers is included. You can run it with:
+
+```bash
+npm run test
+```
+
+It doesn't require a WireGuard installation and is mainly useful when editing the backend code.
+
 ## Features
 
 - Voucher redemption (public, rate-limited)
@@ -50,7 +59,7 @@ backend/
 - Admin identity verification endpoint
 - WireGuard status in JSON format
 - Hourly subscription expiry enforcement
-- WireGuard sync via `wg syncconf`
+- WireGuard configuration file (`/etc/wireguard/<iface>.conf`) is treated as source of truth; peers are added/removed in the file and applied to the running interface using `wg-quick strip` + `wg syncconf` with automatic rollback on failure
 - SQLite with WAL mode for concurrency
 
 ## API Endpoints
@@ -136,4 +145,4 @@ curl -X GET http://localhost:3000/api/admin/overview \
 - Settings stored in SQLite singleton row (id=1)
 - Database auto-created at `backend/data/app.db`
 - WAL mode enabled for better concurrency
-- Run with root privileges for WireGuard access
+- Run with root privileges for WireGuard access (necessary to modify `/etc/wireguard/*.conf` and execute wg commands)

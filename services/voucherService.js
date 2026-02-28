@@ -22,12 +22,26 @@ function findNextIp() {
 }
 
 async function redeemVoucher(code, email, phone) {
-  if (!validateCode(code)) {
-    throw new Error('invalid voucher format');
+  // normalize: trim + uppercase
+  const normalized = (code || '').trim().toUpperCase();
+  
+  if (!validateCode(normalized)) {
+    const err = new Error('Invalid voucher code format');
+    err.status = 400;
+    throw err;
   }
-  const voucher = db.prepare('SELECT * FROM vouchers WHERE code = ?').get(code);
-  if (!voucher) throw new Error('voucher not found');
-  if (voucher.is_redeemed) throw new Error('voucher already redeemed');
+  
+  const voucher = db.prepare('SELECT * FROM vouchers WHERE code = ?').get(normalized);
+  if (!voucher) {
+    const err = new Error('Voucher not found');
+    err.status = 404;
+    throw err;
+  }
+  if (voucher.is_redeemed) {
+    const err = new Error('Voucher already redeemed');
+    err.status = 409;
+    throw err;
+  }
 
   const keys = await wgService.generatePeerKeys();
   const ip = findNextIp();

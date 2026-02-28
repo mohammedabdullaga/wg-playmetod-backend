@@ -6,6 +6,7 @@ admin-panel-react-js/dist/
 admin-panel/dist/
 admin-panel/
 admin-panel-react-js/
+user-frontend/
 # Environment variables
 .env
 .env.*

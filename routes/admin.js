@@ -4,6 +4,7 @@ const db = require('../database');
 const authService = require('../services/authService');
 const { requireAdmin } = require('../middleware/auth');
 const wgService = require('../services/wgService');
+const { VOUCHER_ALPHABET } = require('../config/voucher');
 
 // login
 router.post('/login', async (req, res, next) => {
@@ -34,13 +35,12 @@ router.post('/vouchers', requireAdmin, (req, res) => {
     return res.status(400).json({ error: 'invalid count' });
   }
 
-  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   function genCode() {
     const groups = [];
     for (let g = 0; g < 4; g++) {
       let part = '';
       for (let i = 0; i < 4; i++) {
-        part += alphabet.charAt(Math.floor(Math.random() * alphabet.length));
+        part += VOUCHER_ALPHABET.charAt(Math.floor(Math.random() * VOUCHER_ALPHABET.length));
       }
       groups.push(part);
     }

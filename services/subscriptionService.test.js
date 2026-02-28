@@ -28,5 +28,11 @@ const subSvc = require('./subscriptionService');
   // restore
   subSvc._getByToken = orig;
 
+  // QR generation should use config text
+  subSvc._getByToken = () => fake;
+  const qrbuf = await subSvc.getSubscriptionQr('tok');
+  assert(qrbuf && qrbuf.length > 0, 'qr buffer should be returned');
+  subSvc._getByToken = orig;
+
   console.log('subscriptionService basic tests passed');
 })();

@@ -40,8 +40,13 @@ async function getSubscription(token) {
   if (row.ip_address) {
     // generate wg url for convenience
     data.wgLink = `wg://${settings.server_public_ip}:${settings.server_port}?peer=${row.ip_address}`;
+    // also attempt to build configuration and a QR from the config text itself
     try {
-      data.qrBase64 = (await qrcode.toDataURL(data.wgLink)).split(',')[1];
+      const cfg = await getSubscriptionConfig(token);
+      if (cfg) {
+        data.configText = cfg;
+        data.qrBase64 = (await qrcode.toDataURL(cfg)).split(',')[1];
+      }
     } catch (e) {
       // ignore qr failure
     }
@@ -51,12 +56,10 @@ async function getSubscription(token) {
 }
 
 async function getSubscriptionQr(token) {
-  const row = _lookup(token);
-  if (!row || !row.ip_address) return null;
-  const settings = db.prepare('SELECT * FROM settings WHERE id = 1').get();
-  const link = `wg://${settings.server_public_ip}:${settings.server_port}?peer=${row.ip_address}`;
-  // return PNG buffer
-  return qrcode.toBuffer(link, { type: 'png' });
+  const cfg = await getSubscriptionConfig(token);
+  if (!cfg) return null;
+  // return PNG buffer generated from the full config text
+  return qrcode.toBuffer(cfg, { type: 'png' });
 }
 
 async function getSubscriptionConfig(token) {

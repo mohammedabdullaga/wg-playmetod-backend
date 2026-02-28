@@ -71,6 +71,8 @@ It doesn't require a WireGuard installation and is mainly useful when editing th
 - `GET /api/subscription/:token/qr` - returns PNG QR code for WireGuard link
 - `GET /api/subscription/:token/config` - download client WireGuard configuration
 
+> **Note:** the router is mounted at `/api/subscription/` so the paths are `/:token` … not `/subscription/:token`.
+
 ### Admin (require JWT auth)
 - `POST /api/admin/login` - login with email/password
 - `GET /api/admin/me` - get current admin info
